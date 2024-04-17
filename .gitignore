@@ -28,3 +28,4 @@ TestResults
 /src/nuget/lib/netstandard1.2
 /src/nuget/publish
 
+src/nuget/lib/netstandard2.0/
