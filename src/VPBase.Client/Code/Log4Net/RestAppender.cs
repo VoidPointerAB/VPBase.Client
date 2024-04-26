@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading;
 using log4net.Appender;
 using log4net.Core;
 using log4net.Util;
@@ -69,20 +70,53 @@ namespace VPBase.Client.Code.Log4Net
 
                 LoggingBaseProperties = ClientLoggingServiceFactory.CreateLoggingBaseProperties(ApplicationName);
 
-                _processingQueue = new ProcessingQueue(InteralLog, 1000);
+                _processingQueue = new ProcessingQueue(LogInternal, 1000, _clientLoggingService, 100);
+
             }
             catch (Exception ex)
             {
-                InteralLog("Unexpected Error in the RestAppender in ActivateOptions", ex);
+                LogInternal("Unexpected Error in the RestAppender in ActivateOptions", ex);
             }
         }
 
-        private void InteralLog(string message)
+        /// <summary>
+        /// Waits until processing queue has reached the expected queue count.
+        /// </summary>
+        /// <param name="expectedQueueCount">Expected Queue Count.</param>
+        public void WaitUntilQueueIsReached(int expectedQueueCount)
         {
-            InteralLog(message, null);
+            while (true)
+            {
+                if (_processingQueue.Count == expectedQueueCount)
+                {
+                    return;
+                }
+
+                Thread.Sleep(500);
+            }
         }
 
-        private void InteralLog(string message, Exception ex)
+        public void WaitUntilQueueIsEmpty(int millisecondsTimeOut = 10000)
+        {
+            while (true)
+            {
+                if (_processingQueue.Count == 0)    // Deqeued!
+                {
+                    _processingQueue.WaitUntilIdle(millisecondsTimeOut);
+
+                    return;
+                }
+
+                Thread.Sleep(500);
+            }
+        }
+
+        private void LogInternal(string message)
+        {
+            LogInternal(message, null);
+        }
+
+        private void LogInternal(string message, Exception ex)
         {
             if (DebugMode)
             {
@@ -96,7 +130,7 @@ namespace VPBase.Client.Code.Log4Net
             {
                 if (!CheckPreConditions())
                 {
-                    InteralLog("Preconditions in RestAppender is not set correctly!");
+                    LogInternal("Preconditions in RestAppender is not set correctly!");
                     return;
                 }
 
@@ -146,28 +180,13 @@ namespace VPBase.Client.Code.Log4Net
                     LogMessageUtcDate = DateTime.UtcNow,
                 };
 
-                _processingQueue.Enqueue(() =>
-                {
-                    InteralLog("Processing message: " + logMessage.Message);
+                _processingQueue.Enqueue(logMessage);
 
-                    try
-                    {
-                        var result = _clientLoggingService.SendLogMessage(logMessage);
-                        if (!result)
-                        {
-                            InteralLog("Error in RestAppender when sending LogMessage!");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        InteralLog("RestAppender throwed unexpected exception when sending the log message to the Rest Api Service!", ex);
-                    }
-
-                });
+                _processingQueue.SendMessagesFromQueue();
             }
             catch (Exception ex)
             {
-                InteralLog("RestAppender throwed an unexcepted error!", ex);
+                LogInternal("RestAppender throwed an unexcepted error!", ex);
             }
         }
 
@@ -417,35 +436,11 @@ namespace VPBase.Client.Code.Log4Net
             }
             catch (Exception ex)
             {
-                InteralLog("Error in RestAppender when trying to get and convert key: '" + key +
+                LogInternal("Error in RestAppender when trying to get and convert key: '" + key +
                     "' with it's data. Wrong datatype!", ex);
             }
 
             return loggingPropertyValue;
         }
-    }
-
-    public class LogValueItem
-    {
-        public LogValueItem()
-        {
-            User = new LoggingUser();
-            Url = new LoggingUrl();
-            Entity = new LoggingEntity();
-            Entity2 = new LoggingEntity();
-            KeyValues = new List<LoggingKeyValue>();
-        }
-
-        public LoggingUser User { get; set; }
-
-        public LoggingEntity Entity { get; set; }
-
-        public LoggingEntity Entity2 { get; set; }
-
-        public LoggingUrl Url { get; set; }
-
-        public List<LoggingKeyValue> KeyValues { get; set; }
-
-        public string AdditionalInformation { get; set; }
     }
 }
